@@ -22,11 +22,13 @@ contract ONOE_Voting {
 
     ElectionState public state;
     uint public candidateCount;
+    uint public totalRevealed; // number of voters whose votes have been counted
     
     // Mappings
     mapping(uint => Candidate) public candidates;
     mapping(bytes32 => bool) public commitments; // Hashed votes
     mapping(address => bool) public hasVoted;    // One commit per wallet
+    mapping(address => bool) public hasRevealed; // Lets the UI resume at the right step
     mapping(bytes32 => bool) public nullifierUsed; // One commit per real voter ID, whatever wallet they use
 
     // --- Events (Crucial for your Frontend) ---
@@ -121,6 +123,8 @@ contract ONOE_Voting {
         
         // Prevent replay
         commitments[hash] = false;
+        hasRevealed[msg.sender] = true;
+        totalRevealed++;
         emit VoteRevealed(_mpId, _mlaId);
     }
 

@@ -57,6 +57,9 @@ contract ONOEMetrics is Test {
         uint revealGas = startGas - gasleft();
         vm.stopPrank();
 
+        assertTrue(voting.hasRevealed(voter));
+        assertEq(voting.totalRevealed(), 1);
+
         // LOGGING DATA FOR PAPER
         console.log("-------------------------------------------");
         console.log("METRICS FOR RESEARCH PAPER:");
