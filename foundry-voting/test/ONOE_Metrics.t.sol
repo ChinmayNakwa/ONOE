@@ -8,13 +8,16 @@ contract ONOEMetrics is Test {
     ONOE_Voting voting;
     uint adminKey = 0x1234; // Simulated Admin Private Key
     address admin = vm.addr(adminKey);
-    
+
+    uint signerKey = 0x9abc; // Simulated Government Node (slip signer) Private Key
+    address slipSigner = vm.addr(signerKey);
+
     uint voterKey = 0x5678; // Simulated Voter Private Key
     address voter = vm.addr(voterKey);
 
     function setUp() public {
         vm.prank(admin);
-        voting = new ONOE_Voting();
+        voting = new ONOE_Voting(slipSigner);
 
         // Admin adds candidates (Simulating the Dashboard)
         vm.startPrank(admin);
@@ -29,7 +32,7 @@ contract ONOEMetrics is Test {
         // 1. Off-Chain Identity (Simulating Government Node)
         bytes32 msgHash = keccak256(abi.encodePacked(voter, uint(1)));
         bytes32 ethMsgHash = voting.getEthSignedMessageHash(msgHash);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(adminKey, ethMsgHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, ethMsgHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
         // 2. Commit Phase (Measure Gas)

@@ -5,7 +5,8 @@ pragma solidity ^0.8.20;
 /// @notice Implements Commit-Reveal scheme with Dual-Voting (MP + MLA)
 contract ONOE_Voting {
     // --- Roles ---
-    address public immutable ECI_ADMIN; 
+    address public immutable ECI_ADMIN;   // runs the election (phases, candidates)
+    address public immutable SLIP_SIGNER; // government node key that signs voter slips
 
     // --- State & Structs ---
     enum ElectionState { NotStarted, Registration, Voting, Revealing, Ended }
@@ -43,8 +44,10 @@ contract ONOE_Voting {
         _;
     }
 
-    constructor() {
+    constructor(address _slipSigner) {
+        require(_slipSigner != address(0), "Slip signer required");
         ECI_ADMIN = msg.sender;
+        SLIP_SIGNER = _slipSigner;
         state = ElectionState.NotStarted;
     }
 
@@ -69,13 +72,13 @@ contract ONOE_Voting {
     // --- Core ONOE Logic ---
 
     // 1. COMMIT PHASE: User submits Hash + Government Signature
-    function commitVote(bytes32 _commitment, uint _voterConstituency, bytes memory _adminSignature) external inState(ElectionState.Voting) {
+    function commitVote(bytes32 _commitment, uint _voterConstituency, bytes memory _slipSignature) external inState(ElectionState.Voting) {
         require(!hasVoted[msg.sender], "Already voted");
 
-        // Verify the "Digital Voter Slip" (Signature from your Node.js backend)
+        // Verify the "Digital Voter Slip" (signed by the government node, not by the admin)
         bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, _voterConstituency));
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
-        require(recoverSigner(ethSignedMessageHash, _adminSignature) == ECI_ADMIN, "Invalid Voter Slip Signature");
+        require(recoverSigner(ethSignedMessageHash, _slipSignature) == SLIP_SIGNER, "Invalid Voter Slip Signature");
 
         commitments[_commitment] = true;
         hasVoted[msg.sender] = true;
