@@ -30,18 +30,20 @@ contract ONOEMetrics is Test {
 
     function test_GeneratePaperMetrics() public {
         // 1. Off-Chain Identity (Simulating Government Node)
-        bytes32 msgHash = keccak256(abi.encodePacked(voter, uint(1)));
+        bytes32 nullifier = keccak256("VOTER_ID_1");
+        uint deadline = block.timestamp + 15 minutes;
+        bytes32 msgHash = voting.getSlipHash(voter, 1, nullifier, deadline);
         bytes32 ethMsgHash = voting.getEthSignedMessageHash(msgHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, ethMsgHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
         // 2. Commit Phase (Measure Gas)
         vm.startPrank(voter);
-        string memory salt = "SECRET_PASSWORD";
+        bytes32 salt = keccak256("SECRET_PASSWORD");
         bytes32 commitment = keccak256(abi.encodePacked(uint(1), uint(2), uint(1), voter, salt));
         
         uint startGas = gasleft();
-        voting.commitVote(commitment, 1, signature);
+        voting.commitVote(commitment, 1, nullifier, deadline, signature);
         uint commitGas = startGas - gasleft();
         vm.stopPrank();
 

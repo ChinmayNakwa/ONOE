@@ -26,7 +26,8 @@ contract ONOE_Voting {
     // Mappings
     mapping(uint => Candidate) public candidates;
     mapping(bytes32 => bool) public commitments; // Hashed votes
-    mapping(address => bool) public hasVoted;    // Sybil resistance
+    mapping(address => bool) public hasVoted;    // One commit per wallet
+    mapping(bytes32 => bool) public nullifierUsed; // One commit per real voter ID, whatever wallet they use
 
     // --- Events (Crucial for your Frontend) ---
     event ElectionStateChanged(ElectionState newState);
@@ -71,22 +72,36 @@ contract ONOE_Voting {
 
     // --- Core ONOE Logic ---
 
-    // 1. COMMIT PHASE: User submits Hash + Government Signature
-    function commitVote(bytes32 _commitment, uint _voterConstituency, bytes memory _slipSignature) external inState(ElectionState.Voting) {
+    /// @notice The hash the government node signs for a voter. It is tied to this contract and
+    /// chain, so a slip cannot be replayed elsewhere, and to a nullifier (one per real voter).
+    function getSlipHash(address _voter, uint _constituency, bytes32 _nullifier, uint _deadline) public view returns (bytes32) {
+        return keccak256(abi.encodePacked(address(this), block.chainid, _voter, _constituency, _nullifier, _deadline));
+    }
+
+    // 1. COMMIT PHASE: User submits Hash + Government Slip
+    function commitVote(
+        bytes32 _commitment,
+        uint _voterConstituency,
+        bytes32 _nullifier,
+        uint _deadline,
+        bytes memory _slipSignature
+    ) external inState(ElectionState.Voting) {
+        require(block.timestamp <= _deadline, "Voter slip expired");
         require(!hasVoted[msg.sender], "Already voted");
+        require(!nullifierUsed[_nullifier], "Voter ID already used");
 
         // Verify the "Digital Voter Slip" (signed by the government node, not by the admin)
-        bytes32 messageHash = keccak256(abi.encodePacked(msg.sender, _voterConstituency));
-        bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
+        bytes32 ethSignedMessageHash = getEthSignedMessageHash(getSlipHash(msg.sender, _voterConstituency, _nullifier, _deadline));
         require(recoverSigner(ethSignedMessageHash, _slipSignature) == SLIP_SIGNER, "Invalid Voter Slip Signature");
 
         commitments[_commitment] = true;
         hasVoted[msg.sender] = true;
+        nullifierUsed[_nullifier] = true;
         emit VoteCommitted(_commitment);
     }
 
     // 2. REVEAL PHASE: User reveals choices (MP + MLA)
-    function revealVote(uint _mpId, uint _mlaId, uint _voterConstituency, string memory _salt) external inState(ElectionState.Revealing) {
+    function revealVote(uint _mpId, uint _mlaId, uint _voterConstituency, bytes32 _salt) external inState(ElectionState.Revealing) {
         // Recreate the hash to prove it matches the commitment
         bytes32 hash = keccak256(abi.encodePacked(_mpId, _mlaId, _voterConstituency, msg.sender, _salt));
         require(commitments[hash], "No matching vote commitment found");
