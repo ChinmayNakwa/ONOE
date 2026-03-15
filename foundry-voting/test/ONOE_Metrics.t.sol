@@ -18,6 +18,7 @@ contract ONOEMetrics is Test {
 
         // Admin adds candidates (Simulating the Dashboard)
         vm.startPrank(admin);
+        voting.setElectionState(ONOE_Voting.ElectionState.Registration);
         voting.addCandidate("Modi", "BJP", 1, true);   // MP
         voting.addCandidate("Yogi", "BJP", 1, false);  // MLA
         voting.setElectionState(ONOE_Voting.ElectionState.Voting);

@@ -49,12 +49,18 @@ contract ONOE_Voting {
     }
 
     // --- Admin Dashboard Functions ---
+    /// @notice Phases only move forward, one step at a time.
     function setElectionState(ElectionState _newState) external onlyAdmin {
+        require(uint(_newState) == uint(state) + 1, "Phases only move forward one step");
         state = _newState;
         emit ElectionStateChanged(_newState);
     }
 
-    function addCandidate(string memory _name, string memory _party, uint _constituencyId, bool _isMP) external onlyAdmin {
+    function addCandidate(string memory _name, string memory _party, uint _constituencyId, bool _isMP)
+        external
+        onlyAdmin
+        inState(ElectionState.Registration)
+    {
         candidateCount++;
         candidates[candidateCount] = Candidate(candidateCount, _name, _party, _constituencyId, _isMP, 0);
         emit CandidateAdded(candidateCount, _name, _constituencyId, _isMP ? "MP" : "MLA");
