@@ -1,9 +1,10 @@
 import { http, createConfig } from 'wagmi'
 import { injected } from 'wagmi/connectors'
 import { defineChain } from 'viem'
+import { CHAIN_ID } from './lib/constants'
 
 const anvil = defineChain({
-  id: 1337,
+  id: CHAIN_ID,
   name: 'Anvil Local',
   nativeCurrency: {
     name: 'Ether',

@@ -1,44 +1,83 @@
-// web/app/api/auth-voter/route.ts
+// The "government node": checks a voter ID + PIN and signs a voter slip for the voter's wallet.
 import { NextResponse } from 'next/server';
-import { createWalletClient, http, toBytes, keccak256, encodePacked } from 'viem';
+import { encodePacked, isAddress, isHex, keccak256 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { sepolia } from 'viem/chains';
+import { CHAIN_ID, SLIP_VALIDITY_SECONDS } from '../../lib/constants';
 
-// SIMULATED DATABASE (2 Constituencies)
-const VOTER_DB: Record<string, number> = {
-  "VARANASI01": 1, // PM's constituency
-  "WAYANAD02": 2,  // Opposition's constituency
+// SIMULATED DATABASE (2 constituencies). Demo PINs only - a real system would use real credentials.
+const VOTER_DB: Record<string, { constituencyId: number; pin: string }> = {
+  VARANASI01: { constituencyId: 1, pin: '1111' }, // PM's constituency
+  VARANASI02: { constituencyId: 1, pin: '2222' },
+  WAYANAD01: { constituencyId: 2, pin: '3333' }, // Opposition's constituency
+  WAYANAD02: { constituencyId: 2, pin: '4444' },
 };
 
+// Block guessing of PINs: 5 wrong tries on a voter ID locks it for 5 minutes (in memory, resets on restart).
+const MAX_FAILED_TRIES = 5;
+const LOCK_MS = 5 * 60 * 1000;
+const failedTries = new Map<string, { count: number; lockedUntil: number }>();
+
+function error(message: string, status: number) {
+  return NextResponse.json({ error: message }, { status });
+}
+
 export async function POST(req: Request) {
-  try {
-    const { voterId, walletAddress } = await req.json();
-
-    // 1. Verify Identity
-    const constituencyId = VOTER_DB[voterId];
-    if (!constituencyId) {
-      return NextResponse.json({ error: "Invalid Voter ID" }, { status: 401 });
-    }
-
-    // 2. Sign the "Digital Slip"
-    // The Private Key here MUST match the address that deployed the contract (ECI_ADMIN)
-    const account = privateKeyToAccount(`0x${process.env.ADMIN_PRIVATE_KEY}`);
-    
-    // Hash matches Solidity logic: keccak256(abi.encodePacked(voter, constituency))
-    // We sign the hash of the data
-    const messageHash = keccak256(encodePacked(
-      ['address', 'uint256'],
-      [walletAddress as `0x${string}`, BigInt(constituencyId)]
-    ));
-
-    // Sign the raw hash (mimicking standard Ethereum signing)
-    const signature = await account.signMessage({ 
-        message: { raw: toBytes(messageHash) } 
-    });
-
-    return NextResponse.json({ verified: true, constituencyId, signature });
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: "Server Error" }, { status: 500 });
+  // 1. Server configuration
+  const signerKey = process.env.SLIP_SIGNER_PRIVATE_KEY;
+  const voterSecret = process.env.VOTER_SECRET;
+  const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
+  if (!signerKey || !isHex(signerKey) || signerKey.length !== 66 || !voterSecret || !contractAddress || !isAddress(contractAddress)) {
+    console.error('Set SLIP_SIGNER_PRIVATE_KEY, VOTER_SECRET and NEXT_PUBLIC_CONTRACT_ADDRESS in frontend/.env.local');
+    return error('Government node is not configured. Contact the administrator.', 500);
   }
+
+  // 2. Request body
+  let body: { voterId?: unknown; pin?: unknown; walletAddress?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return error('Invalid request.', 400);
+  }
+  const voterId = typeof body.voterId === 'string' ? body.voterId.trim().toUpperCase() : '';
+  const pin = typeof body.pin === 'string' ? body.pin.trim() : '';
+  const walletAddress = body.walletAddress;
+  if (!voterId || !pin || typeof walletAddress !== 'string' || !isAddress(walletAddress)) {
+    return error('Voter ID, PIN and a connected wallet are required.', 400);
+  }
+
+  // 3. Verify identity
+  const tries = failedTries.get(voterId);
+  if (tries && tries.lockedUntil > Date.now()) {
+    return error('Too many wrong attempts. Try again in a few minutes.', 429);
+  }
+  const voter = VOTER_DB[voterId];
+  if (!voter || voter.pin !== pin) {
+    const count = (tries?.count ?? 0) + 1;
+    failedTries.set(voterId, { count, lockedUntil: count >= MAX_FAILED_TRIES ? Date.now() + LOCK_MS : 0 });
+    return error('Invalid Voter ID or PIN.', 401);
+  }
+  failedTries.delete(voterId);
+
+  // 4. Build the slip. The nullifier is the same for a voter ID whatever wallet they use, so the contract
+  //    can reject a second vote. It is hashed with a server secret so it does not reveal the voter ID.
+  const nullifier = keccak256(encodePacked(['string', 'string'], [voterSecret, voterId]));
+  const deadline = Math.floor(Date.now() / 1000) + SLIP_VALIDITY_SECONDS;
+
+  // Must match ONOE_Voting.getSlipHash()
+  const slipHash = keccak256(encodePacked(
+    ['address', 'uint256', 'address', 'uint256', 'bytes32', 'uint256'],
+    [contractAddress, BigInt(CHAIN_ID), walletAddress, BigInt(voter.constituencyId), nullifier, BigInt(deadline)]
+  ));
+
+  // 5. Sign it like eth_sign does (matches ONOE_Voting.getEthSignedMessageHash)
+  const account = privateKeyToAccount(signerKey);
+  const signature = await account.signMessage({ message: { raw: slipHash } });
+
+  return NextResponse.json({
+    verified: true,
+    constituencyId: voter.constituencyId,
+    nullifier,
+    deadline,
+    signature,
+  });
 }

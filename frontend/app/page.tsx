@@ -41,6 +41,7 @@ export default function VoterPage() {
   const [mounted, setMounted] = useState(false);
   const [phase, setPhase] = useState<VotePhase>('auth');
   const [voterId, setVoterId] = useState('');
+  const [pin, setPin] = useState('');
   const [authData, setAuthData] = useState<{ constituencyId: number; signature: string; nullifier: string; deadline: number } | null>(null);
   const [selectedMP, setSelectedMP] = useState(0);
   const [selectedMLA, setSelectedMLA] = useState(0);
@@ -107,7 +108,7 @@ export default function VoterPage() {
       const res = await fetch('/api/auth-voter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voterId, walletAddress: address }),
+        body: JSON.stringify({ voterId, pin, walletAddress: address }),
       });
       const data = await res.json();
       if (data.verified) {
@@ -266,9 +267,18 @@ export default function VoterPage() {
               onChange={e => setVoterId(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleLogin()}
             />
+            <label style={styles.label}>PIN</label>
+            <input
+              type="password"
+              style={{ ...styles.input, marginBottom: 16 }}
+              placeholder="Your PIN"
+              value={pin}
+              onChange={e => setPin(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleLogin()}
+            />
             {authError && <div style={{ ...styles.errorMsg, marginBottom: 12 }}>✗ {authError}</div>}
-            <button onClick={handleLogin} disabled={!voterId.trim()}
-              style={{ ...styles.submitBtn, opacity: !voterId.trim() ? 0.5 : 1, cursor: !voterId.trim() ? 'not-allowed' : 'pointer' }}>
+            <button onClick={handleLogin} disabled={!voterId.trim() || !pin.trim()}
+              style={{ ...styles.submitBtn, opacity: !voterId.trim() || !pin.trim() ? 0.5 : 1, cursor: !voterId.trim() || !pin.trim() ? 'not-allowed' : 'pointer' }}>
               VERIFY WITH GOVERNMENT NODE
             </button>
           </div>
