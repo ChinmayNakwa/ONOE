@@ -2,7 +2,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useAccount, useConnect, useWriteContract, useReadContract, useReadContracts } from 'wagmi';
-import { keccak256, encodePacked } from 'viem';
+import { keccak256, encodePacked, toHex } from 'viem';
 import { ONOE_ABI } from './abi';
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
@@ -41,7 +41,7 @@ export default function VoterPage() {
   const [mounted, setMounted] = useState(false);
   const [phase, setPhase] = useState<VotePhase>('auth');
   const [voterId, setVoterId] = useState('');
-  const [authData, setAuthData] = useState<{ constituencyId: number; signature: string } | null>(null);
+  const [authData, setAuthData] = useState<{ constituencyId: number; signature: string; nullifier: string; deadline: number } | null>(null);
   const [selectedMP, setSelectedMP] = useState(0);
   const [selectedMLA, setSelectedMLA] = useState(0);
   const [salt, setSalt] = useState('');
@@ -80,7 +80,7 @@ export default function VoterPage() {
     setSelectedMLA(saved.mlaId);
     setSalt(saved.salt);
     if (saved.phase !== 'auth' && saved.constId) {
-      setAuthData({ constituencyId: saved.constId, signature: '' });
+      setAuthData({ constituencyId: saved.constId, signature: '', nullifier: '', deadline: 0 });
     }
     setMounted(true);
   }, []);
@@ -111,7 +111,7 @@ export default function VoterPage() {
       });
       const data = await res.json();
       if (data.verified) {
-        const randomSalt = Math.random().toString(36).substring(2, 9);
+        const randomSalt = keccak256(toHex(Math.random().toString(36))); // bytes32 salt
         setAuthData(data);
         setSalt(randomSalt);
         setPhase('vote');
@@ -127,12 +127,12 @@ export default function VoterPage() {
   const handleCommit = () => {
     if (!selectedMP || !selectedMLA || !authData || phase !== 'vote') return;
     const commitment = keccak256(encodePacked(
-      ['uint256', 'uint256', 'uint256', 'address', 'string'],
-      [BigInt(selectedMP), BigInt(selectedMLA), BigInt(authData.constituencyId), address as `0x${string}`, salt]
+      ['uint256', 'uint256', 'uint256', 'address', 'bytes32'],
+      [BigInt(selectedMP), BigInt(selectedMLA), BigInt(authData.constituencyId), address as `0x${string}`, salt as `0x${string}`]
     ));
     writeContract({
       address: CONTRACT_ADDRESS, abi: ONOE_ABI, functionName: 'commitVote',
-      args: [commitment, BigInt(authData.constituencyId), authData.signature as `0x${string}`],
+      args: [commitment, BigInt(authData.constituencyId), authData.nullifier as `0x${string}`, BigInt(authData.deadline), authData.signature as `0x${string}`],
     }, {
       onSuccess: () => {
         setPhase('committed');
@@ -151,7 +151,7 @@ export default function VoterPage() {
     if (!mpId || !mlaId || !cId || !s) return alert('Vote data missing. Cannot reveal.');
     writeContract({
       address: CONTRACT_ADDRESS, abi: ONOE_ABI, functionName: 'revealVote',
-      args: [BigInt(mpId), BigInt(mlaId), BigInt(cId), s],
+      args: [BigInt(mpId), BigInt(mlaId), BigInt(cId), s as `0x${string}`],
     }, {
       onSuccess: () => {
         setPhase('revealed');
