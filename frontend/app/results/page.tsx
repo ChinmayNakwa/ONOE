@@ -1,188 +1,83 @@
-// web/app/results/page.tsx
 'use client';
-import { useReadContract, useReadContracts } from 'wagmi';
-import { ONOE_ABI } from '../abi';
 
-const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
-
-const STATE_LABELS = ['NOT STARTED', 'REGISTRATION', 'VOTING', 'REVEALING', 'ENDED'];
-const STATE_COLORS = ['#6b7280', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
-
-type Candidate = { id: number; name: string; party: string; constituencyId: number; isMP: boolean; voteCount: number; };
+import { Header } from '../components/Header';
+import { SetupBanners, Shell } from '../components/Shell';
+import { Tally } from '../components/Tally';
+import { Banner, Card, Stat } from '../components/ui';
+import { constituencyName } from '../lib/constants';
+import { CONTRACT_ADDRESS } from '../lib/contract';
+import { PHASE_COLORS, colors, fonts } from '../lib/theme';
+import { useElection } from '../lib/useElection';
 
 export default function ResultsPage() {
-  // ── ALL hooks unconditionally ─────────────────────────────────────────────
-  const { data: electionState } = useReadContract({
-    address: CONTRACT_ADDRESS, abi: ONOE_ABI, functionName: 'state',
-  });
+  const { phase, candidates, totalRevealed, isLoading, isError, lastUpdated } = useElection();
 
-  const { data: candidateCount, isLoading: countLoading } = useReadContract({
-    address: CONTRACT_ADDRESS, abi: ONOE_ABI, functionName: 'candidateCount',
-  });
-
-  const totalCandidates = candidateCount ? Math.min(Number(candidateCount), 50) : 0;
-
-  const { data: candidatesData, isLoading: candidatesLoading } = useReadContracts({
-    contracts: Array.from({ length: totalCandidates }, (_, i) => ({
-      address: CONTRACT_ADDRESS, abi: ONOE_ABI,
-      functionName: 'candidates' as const, args: [BigInt(i + 1)] as [bigint],
-    })),
-    query: { enabled: totalCandidates > 0 },
-  });
-
-  // ── Derived values ────────────────────────────────────────────────────────
-  const currentState = electionState !== undefined ? Number(electionState) : -1;
-
-  const candidates: Candidate[] = (candidatesData ?? [])
-    .map(r => {
-      if (r.status !== 'success' || !r.result) return null;
-      const [id, name, party, constituencyId, isMP, voteCount] = r.result as [bigint, string, string, bigint, boolean, bigint];
-      if (!name) return null;
-      return { id: Number(id), name, party, constituencyId: Number(constituencyId), isMP, voteCount: Number(voteCount) };
-    }).filter(Boolean) as Candidate[];
-
-  const mpCandidates = [...candidates.filter(c => c.isMP)].sort((a, b) => b.voteCount - a.voteCount);
-  const mlaCandidates = [...candidates.filter(c => !c.isMP)].sort((a, b) => b.voteCount - a.voteCount);
-  const maxVotes = Math.max(1, ...candidates.map(c => c.voteCount));
-  const totalVotesCast = Math.floor(candidates.reduce((s, c) => s + c.voteCount, 0) / 2);
-
-  // ── Loading state ─────────────────────────────────────────────────────────
-  if (countLoading || (totalCandidates > 0 && candidatesLoading)) return (
-    <div style={styles.page}>
-      <div style={styles.grain} />
-      <div style={styles.centerBox}>
-        <div style={{ fontFamily: '"Bebas Neue", monospace', fontSize: 24, letterSpacing: 3, color: '#f59e0b' }}>LOADING RESULTS...</div>
-        <div style={{ color: '#4b5563', fontFamily: 'monospace', fontSize: 12, marginTop: 8 }}>Fetching on-chain data</div>
-      </div>
-      <GlobalStyles />
-    </div>
-  );
+  const constituencyIds = [...new Set(candidates.map(c => c.constituencyId))].sort((a, b) => a - b);
+  const final = phase === 4;
 
   return (
-    <div style={styles.page}>
-      <div style={styles.grain} />
+    <Shell>
+      <Header title="ELECTION RESULTS" subtitle="One Nation, One Election · Live vote counts" active="results" phase={phase} />
 
-      {/* Header */}
-      <header style={styles.header}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 22 }}>📊</span>
-          <div>
-            <div style={styles.headerTitle}>ELECTION RESULTS</div>
-            <div style={styles.headerSub}>One Nation, One Election · Live Vote Counts</div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {currentState >= 0 && (
-            <div style={{ ...styles.stateBadge, backgroundColor: STATE_COLORS[currentState] + '22', borderColor: STATE_COLORS[currentState] }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: STATE_COLORS[currentState], display: 'inline-block', marginRight: 7, boxShadow: `0 0 5px ${STATE_COLORS[currentState]}` }} />
-              <span style={{ color: STATE_COLORS[currentState], fontFamily: 'monospace', fontSize: 11, fontWeight: 700 }}>
-                {STATE_LABELS[currentState]}
-              </span>
-            </div>
-          )}
-          <a href="/" style={{ color: '#f59e0b', fontFamily: 'monospace', fontSize: 11, textDecoration: 'none', padding: '5px 12px', border: '1px solid #f59e0b40', borderRadius: 4 }}>← VOTE</a>
-          <a href="/admin" style={{ color: '#6b7280', fontFamily: 'monospace', fontSize: 11, textDecoration: 'none', padding: '5px 12px', border: '1px solid #374151', borderRadius: 4 }}>ADMIN</a>
-        </div>
-      </header>
+      <main className="onoe-main">
+        <SetupBanners />
 
-      <main style={{ padding: '24px 32px', position: 'relative', zIndex: 1 }}>
-
-        {/* Warning if not in revealing/ended phase */}
-        {currentState >= 0 && currentState < 3 && (
-          <div style={{ ...styles.warningMsg, marginBottom: 24 }}>
-            ⚠ Final results are tallied after the REVEALING phase. Current phase: {STATE_LABELS[currentState]}. Counts below may be 0.
-          </div>
+        {isError && !!CONTRACT_ADDRESS && (
+          <Banner kind="error" style={{ marginBottom: 16 }}>
+            Cannot read the election contract. Is Anvil running, and is NEXT_PUBLIC_CONTRACT_ADDRESS the address of the latest deployment?
+          </Banner>
         )}
 
-        {/* No candidates */}
-        {candidates.length === 0 ? (
-          <div style={{ ...styles.card, textAlign: 'center', padding: '60px 20px' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🗳</div>
-            <div style={{ fontFamily: '"Bebas Neue", monospace', fontSize: 24, color: '#4b5563', letterSpacing: 2 }}>NO CANDIDATES REGISTERED</div>
-            <p style={{ color: '#4b5563', fontFamily: 'monospace', fontSize: 12, marginTop: 8 }}>Ask the admin to add candidates first.</p>
-          </div>
+        {isLoading ? (
+          <Card style={{ textAlign: 'center', padding: '60px 20px' }}>
+            <div style={{ fontFamily: fonts.heading, fontSize: 24, letterSpacing: 3, color: colors.amber }}>LOADING RESULTS…</div>
+            <p style={{ color: colors.faint, fontSize: 12, marginTop: 8 }}>Reading the blockchain</p>
+          </Card>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ display: 'grid', gap: 20 }}>
+            {phase >= 0 && phase < 3 && (
+              <Banner kind="info">
+                Votes are only counted once voters reveal them, so every tally stays at 0 until the REVEALING phase.
+              </Banner>
+            )}
+            {phase === 3 && <Banner kind="warning">Revealing is in progress. These counts are provisional until the election ends.</Banner>}
+            {final && <Banner kind="success">The election has ended. These results are final.</Banner>}
 
-            {/* Summary stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              {[
-                { label: 'TOTAL CANDIDATES', value: candidates.length, color: '#f59e0b' },
-                { label: 'MP CANDIDATES', value: mpCandidates.length, color: '#3b82f6' },
-                { label: 'MLA CANDIDATES', value: mlaCandidates.length, color: '#8b5cf6' },
-                { label: 'VOTES CAST', value: totalVotesCast, color: '#10b981' },
-              ].map(({ label, value, color }) => (
-                <div key={label} style={{ ...styles.card, textAlign: 'center' }}>
-                  <div style={{ fontSize: 32, fontWeight: 900, color, fontFamily: 'monospace' }}>{value}</div>
-                  <div style={{ color: '#6b7280', fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>{label}</div>
-                </div>
-              ))}
+            <div className="onoe-stats">
+              <Stat label="VOTERS COUNTED" value={totalRevealed} color={colors.green} />
+              <Stat label="MP CANDIDATES" value={candidates.filter(c => c.isMP).length} color={colors.blue} />
+              <Stat label="MLA CANDIDATES" value={candidates.filter(c => !c.isMP).length} color={colors.purple} />
+              <Stat label="PHASE" value={phase >= 0 ? ['—', '1', '2', '3', '4'][phase] + '/4' : '…'} color={phase >= 0 ? PHASE_COLORS[phase] : colors.faint} />
             </div>
 
-            {/* Results */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-              {[{ title: 'LOK SABHA (MP)', list: mpCandidates, color: '#3b82f6', accent: '#3b82f622' },
-                { title: 'VIDHAN SABHA (MLA)', list: mlaCandidates, color: '#8b5cf6', accent: '#8b5cf622' }]
-                .map(({ title, list, color, accent }) => (
-                  <div key={title} style={styles.card}>
-                    <div style={styles.cardTitle}>{title}</div>
-                    {list.length === 0 ? (
-                      <div style={{ color: '#4b5563', fontFamily: 'monospace', fontSize: 12, textAlign: 'center', padding: '20px 0' }}>NO CANDIDATES</div>
-                    ) : list.map((c, i) => (
-                      <div key={c.id} style={{ marginBottom: 16 }}>
-                        <div style={{
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          padding: '10px 12px', borderRadius: 6, marginBottom: 6,
-                          backgroundColor: i === 0 && c.voteCount > 0 ? accent : 'transparent',
-                          border: `1px solid ${i === 0 && c.voteCount > 0 ? color : 'transparent'}`,
-                        }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            {i === 0 && c.voteCount > 0 && <span>👑</span>}
-                            <div>
-                              <div style={{ color: '#f9fafb', fontWeight: 600, fontSize: 14 }}>{c.name}</div>
-                              <div style={{ color: '#6b7280', fontSize: 11, fontFamily: 'monospace' }}>{c.party} · C{c.constituencyId}</div>
-                            </div>
-                          </div>
-                          <div style={{ textAlign: 'right' }}>
-                            <div style={{ color, fontFamily: 'monospace', fontWeight: 700, fontSize: 20 }}>{c.voteCount}</div>
-                            <div style={{ color: '#4b5563', fontSize: 10, fontFamily: 'monospace' }}>VOTES</div>
-                          </div>
-                        </div>
-                        <div style={{ height: 4, backgroundColor: '#1f2937', borderRadius: 2 }}>
-                          <div style={{ height: 4, width: `${(c.voteCount / maxVotes) * 100}%`, backgroundColor: color, borderRadius: 2, transition: 'width 0.7s ease', minWidth: c.voteCount > 0 ? 4 : 0 }} />
-                        </div>
-                      </div>
-                    ))}
+            {candidates.length === 0 ? (
+              <Card style={{ textAlign: 'center', padding: '60px 20px' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🗳</div>
+                <div style={{ fontFamily: fonts.heading, fontSize: 24, color: colors.faint, letterSpacing: 2 }}>NO CANDIDATES REGISTERED</div>
+                <p style={{ color: colors.faint, fontSize: 12, marginTop: 8 }}>The admin has not added any candidates yet.</p>
+              </Card>
+            ) : (
+              constituencyIds.map(id => (
+                <section key={id} aria-label={constituencyName(id)}>
+                  <h2 style={{ fontFamily: fonts.heading, fontSize: 20, letterSpacing: 2, color: colors.textStrong, marginBottom: 10 }}>
+                    {constituencyName(id).toUpperCase()} <span style={{ color: colors.faint, fontSize: 14 }}>· CONSTITUENCY {id}</span>
+                  </h2>
+                  <div className="onoe-grid">
+                    <Tally title="LOK SABHA (MP)" accent={colors.blue} final={final} candidates={candidates.filter(c => c.constituencyId === id && c.isMP)} />
+                    <Tally title="VIDHAN SABHA (MLA)" accent={colors.purple} final={final} candidates={candidates.filter(c => c.constituencyId === id && !c.isMP)} />
                   </div>
-                ))}
-            </div>
+                </section>
+              ))
+            )}
+
+            {lastUpdated > 0 && (
+              <p style={{ color: colors.faint, fontSize: 11, textAlign: 'right' }}>
+                Updates every 3 seconds · last updated {new Date(lastUpdated).toLocaleTimeString()}
+              </p>
+            )}
           </div>
         )}
       </main>
-      <GlobalStyles />
-    </div>
+    </Shell>
   );
 }
-
-function GlobalStyles() {
-  return (
-    <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Bebas+Neue&display=swap');
-      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-      body { background: #0a0f1a; }
-    `}</style>
-  );
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  page: { minHeight: '100vh', backgroundColor: '#0a0f1a', backgroundImage: 'radial-gradient(ellipse at 20% 50%, #1e3a5f15 0%, transparent 50%), radial-gradient(ellipse at 80% 20%, #78350f10 0%, transparent 50%)', color: '#e5e7eb', position: 'relative' },
-  grain: { position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, opacity: 0.4, backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E")` },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 32px', borderBottom: '1px solid #1f2937', backgroundColor: '#0d1424cc', backdropFilter: 'blur(8px)', position: 'sticky', top: 0, zIndex: 10 },
-  headerTitle: { fontFamily: '"Bebas Neue", monospace', fontSize: 18, letterSpacing: 3, color: '#f9fafb' },
-  headerSub: { fontSize: 10, color: '#6b7280', fontFamily: 'monospace', letterSpacing: 1 },
-  stateBadge: { padding: '5px 12px', borderRadius: 4, border: '1px solid', display: 'flex', alignItems: 'center' },
-  card: { backgroundColor: '#0d1424', border: '1px solid #1f2937', borderRadius: 8, padding: 20 },
-  cardTitle: { fontFamily: '"Bebas Neue", monospace', fontSize: 15, letterSpacing: 2, color: '#f59e0b', marginBottom: 14, borderBottom: '1px solid #1f2937', paddingBottom: 8 },
-  warningMsg: { padding: '10px 14px', backgroundColor: '#f59e0b15', border: '1px solid #f59e0b', borderRadius: 6, color: '#f59e0b', fontFamily: 'monospace', fontSize: 12 },
-  centerBox: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' },
-};
