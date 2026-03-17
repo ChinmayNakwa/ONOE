@@ -10,6 +10,7 @@ import { CHAIN_ID, constituencyName } from './lib/constants';
 import { CONTRACT_ADDRESS, ONOE_ABI, friendlyError } from './lib/contract';
 import { colors, fonts } from './lib/theme';
 import { useElection, type Candidate } from './lib/useElection';
+import { useMounted } from './lib/useMounted';
 import {
   clearSession, downloadReceipt, loadSession, newSalt, parseReceipt, saveSession, type VoteSession,
 } from './lib/voteSession';
@@ -18,13 +19,13 @@ const STEPS = ['Verify identity', 'Choose candidates', 'Vote sealed', 'Vote coun
 
 export default function VoterPage() {
   // ── All hooks first, early returns after ──────────────────────────────────
+  const mounted = useMounted();
   const { address, isConnected, chainId } = useAccount();
   const election = useElection();
 
   const { writeContract, data: txHash, isPending: walletOpen, error: txError, reset: resetTx } = useWriteContract();
   const receipt = useWaitForTransactionReceipt({ hash: txHash });
 
-  const [mounted, setMounted] = useState(false);
   const [session, setSession] = useState<VoteSession | null>(null);
   const [selectedMP, setSelectedMP] = useState(0);
   const [selectedMLA, setSelectedMLA] = useState(0);
@@ -41,8 +42,6 @@ export default function VoterPage() {
   const poll = { enabled: !!address && !!CONTRACT_ADDRESS, refetchInterval: 3000 };
   const votedRead = useReadContract({ address: CONTRACT_ADDRESS, abi: ONOE_ABI, functionName: 'hasVoted', args: [address as `0x${string}`], query: poll });
   const revealedRead = useReadContract({ address: CONTRACT_ADDRESS, abi: ONOE_ABI, functionName: 'hasRevealed', args: [address as `0x${string}`], query: poll });
-
-  useEffect(() => setMounted(true), []);
 
   // Load this wallet's saved session whenever the connected wallet changes.
   useEffect(() => {
