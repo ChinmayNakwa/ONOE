@@ -12,10 +12,34 @@ const VOTER_DB: Record<string, { constituencyId: number; pin: string }> = {
   WAYANAD02: { constituencyId: 2, pin: '4444' },
 };
 
-// Block guessing of PINs: 5 wrong tries on a voter ID locks it for 5 minutes (in memory, resets on restart).
+// Block guessing of PINs: 5 wrong tries on a voter ID from one address locks that pair for 5 minutes
+// (in memory, resets on restart). The lock is per voter ID AND address, so a stranger who types wrong PINs for
+// someone's ID only locks themselves out, not the real voter. Only real voter IDs are tracked.
+// Behind a proxy, x-forwarded-for must be set by a proxy you trust; otherwise a caller can fake it.
 const MAX_FAILED_TRIES = 5;
 const LOCK_MS = 5 * 60 * 1000;
-const failedTries = new Map<string, { count: number; lockedUntil: number }>();
+const MAX_TRACKED = 1000; // upper bound on remembered (voter ID, address) pairs
+const failedTries = new Map<string, { count: number; lastTry: number; lockedUntil: number }>();
+
+function clientAddress(req: Request) {
+  return req.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown';
+}
+
+// Forget entries that are old: an expired lock or a count nobody has added to for LOCK_MS.
+function forgetStaleTries(now: number) {
+  for (const [key, t] of failedTries) {
+    if (now - t.lastTry > LOCK_MS && t.lockedUntil <= now) failedTries.delete(key);
+  }
+}
+
+function recordFailedTry(key: string, now: number) {
+  forgetStaleTries(now);
+  if (!failedTries.has(key) && failedTries.size >= MAX_TRACKED) {
+    failedTries.delete(failedTries.keys().next().value!); // still full: drop the oldest entry
+  }
+  const count = (failedTries.get(key)?.count ?? 0) + 1;
+  failedTries.set(key, { count, lastTry: now, lockedUntil: count >= MAX_FAILED_TRIES ? now + LOCK_MS : 0 });
+}
 
 function error(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -46,17 +70,21 @@ export async function POST(req: Request) {
   }
 
   // 3. Verify identity
-  const tries = failedTries.get(voterId);
-  if (tries && tries.lockedUntil > Date.now()) {
+  const now = Date.now();
+  const voter = Object.hasOwn(VOTER_DB, voterId) ? VOTER_DB[voterId] : undefined;
+  if (!voter) return error('Invalid Voter ID or PIN.', 401); // unknown IDs are not tracked, so the map cannot grow
+
+  const tryKey = `${voterId}|${clientAddress(req)}`;
+  const tries = failedTries.get(tryKey);
+  if (tries && tries.lockedUntil > now) {
     return error('Too many wrong attempts. Try again in a few minutes.', 429);
   }
-  const voter = VOTER_DB[voterId];
-  if (!voter || voter.pin !== pin) {
-    const count = (tries?.count ?? 0) + 1;
-    failedTries.set(voterId, { count, lockedUntil: count >= MAX_FAILED_TRIES ? Date.now() + LOCK_MS : 0 });
+  if (tries && tries.lockedUntil !== 0) failedTries.delete(tryKey); // the lock has expired: start counting from zero
+  if (voter.pin !== pin) {
+    recordFailedTry(tryKey, now);
     return error('Invalid Voter ID or PIN.', 401);
   }
-  failedTries.delete(voterId);
+  failedTries.delete(tryKey);
 
   // 4. Build the slip. The nullifier is the same for a voter ID whatever wallet they use, so the contract
   //    can reject a second vote. It is hashed with a server secret so it does not reveal the voter ID.
