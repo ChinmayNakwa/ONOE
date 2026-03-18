@@ -1,66 +1,14 @@
-## Foundry
+# foundry-voting
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+The smart contract for the One Nation, One Election prototype, built with [Foundry](https://book.getfoundry.sh/).
 
-Foundry consists of:
-
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
-
-## Documentation
-
-https://book.getfoundry.sh/
-
-## Usage
-
-### Build
+- `src/ONOE_Voting.sol`: the voting contract
+- `test/`: unit tests and gas metrics
+- `script/Deploy.s.sol`: deploy script (needs `PRIVATE_KEY` and `SLIP_SIGNER_ADDRESS`, see `.env.example`)
 
 ```shell
-$ forge build
+forge build
+forge test -vv
 ```
 
-### Test
-
-```shell
-$ forge test
-```
-
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+See the [main README](../Readme.md) for the architecture, how to deploy and run everything, and the known limits.
