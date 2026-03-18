@@ -43,6 +43,10 @@ export default function AdminPage() {
   const [constituency, setConstituency] = useState(1);
   const [isMP, setIsMP] = useState(true);
 
+  // A mined transaction can still have reverted, so check the status before showing success.
+  const mined = receipt.data?.status === 'success';
+  const reverted = receipt.data?.status === 'reverted';
+
   // After a transaction is mined, refresh the data.
   useEffect(() => {
     if (receipt.isSuccess) election.refetch();
@@ -180,7 +184,8 @@ export default function AdminPage() {
                 {action === 'phase' && txError && <Banner kind="error">✗ {friendlyError(txError)}</Banner>}
               </div>
             ) : null}
-            {action === 'phase' && receipt.isSuccess && <Banner kind="success" style={{ marginTop: 12 }}>✓ Phase updated.</Banner>}
+            {action === 'phase' && mined && <Banner kind="success" style={{ marginTop: 12 }}>✓ Phase updated.</Banner>}
+            {action === 'phase' && reverted && <Banner kind="error" style={{ marginTop: 12 }}>✗ The transaction failed on-chain. The phase did not change.</Banner>}
           </Card>
         )}
 
@@ -225,7 +230,8 @@ export default function AdminPage() {
                   </div>
                 </div>
                 <Button type="submit" full loading={action === 'candidate' && busy} disabled={!canAddCandidate}>+ REGISTER CANDIDATE</Button>
-                {action === 'candidate' && receipt.isSuccess && <Banner kind="success">✓ Candidate registered on-chain.</Banner>}
+                {action === 'candidate' && mined && <Banner kind="success">✓ Candidate registered on-chain.</Banner>}
+                {action === 'candidate' && reverted && <Banner kind="error">✗ The transaction failed on-chain. The candidate was not added.</Banner>}
                 {action === 'candidate' && txError && <Banner kind="error">✗ {friendlyError(txError)}</Banner>}
               </form>
             </Card>

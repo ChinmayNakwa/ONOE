@@ -59,17 +59,21 @@ export default function VoterPage() {
     return () => clearInterval(timer);
   }, []);
 
+  // A mined transaction can still have reverted, so check the status before trusting it.
+  const mined = receipt.data?.status === 'success';
+  const reverted = receipt.data?.status === 'reverted';
+
   // After a transaction is mined, refresh progress and clean up.
   useEffect(() => {
     if (!receipt.isSuccess) return;
     votedRead.refetch();
     revealedRead.refetch();
     election.refetch();
-    if (action === 'reveal' && address) {
+    if (mined && action === 'reveal' && address) {
       clearSession(address, CONTRACT_ADDRESS); // the secret is no longer needed
       setSession(null);
     }
-  }, [receipt.isSuccess]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [receipt.isSuccess, mined]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived values ────────────────────────────────────────────────────────
   const committed = votedRead.data === true;
@@ -253,6 +257,7 @@ export default function VoterPage() {
                     and you will need to come back during the REVEALING phase to get them counted.
                   </Banner>
                   {txError && <Banner kind="error">✗ {friendlyError(txError)}</Banner>}
+                  {reverted && <Banner kind="error">✗ The transaction was mined but failed on-chain. Your saved vote secret is untouched, so you can try again.</Banner>}
                   {busy && <Banner kind="info">{walletOpen ? 'Confirm the transaction in your wallet…' : 'Waiting for the chain to confirm…'}</Banner>}
                   <Button full loading={busy} onClick={handleSeal} disabled={slipExpired || phase !== 2 || wrongNetwork}>
                     🔒 SEAL MY VOTE
@@ -279,6 +284,7 @@ export default function VoterPage() {
                         : 'Come back when the admin opens the REVEALING phase and press Reveal.'}
                   </p>
                   {txError && <Banner kind="error">✗ {friendlyError(txError)}</Banner>}
+                  {reverted && <Banner kind="error">✗ The transaction was mined but failed on-chain. Your saved vote secret is untouched, so you can try again.</Banner>}
                   {busy && <Banner kind="info">{walletOpen ? 'Confirm the transaction in your wallet…' : 'Waiting for the chain to confirm…'}</Banner>}
                   <Button full loading={busy} onClick={handleReveal} disabled={phase !== 3 || wrongNetwork}>
                     🔓 REVEAL MY VOTE
