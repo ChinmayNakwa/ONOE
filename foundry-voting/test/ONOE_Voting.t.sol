@@ -307,8 +307,30 @@ contract ONOEVotingTest is Test {
         _startRevealing();
 
         vm.prank(alice);
-        vm.expectRevert("Selected candidate is not an MP");
+        vm.expectRevert("Unknown MP");
         voting.revealVote(99, MLA_C1, 1, SALT);
+    }
+
+    function test_RevealRejectsCandidateIdZero() public {
+        _commit(alice, ALICE_ID, 1, MP_C1, 0, SALT);
+        _startRevealing();
+
+        vm.prank(alice);
+        vm.expectRevert("Unknown MLA");
+        voting.revealVote(MP_C1, 0, 1, SALT);
+    }
+
+    function test_RevealRejectsConstituencyDifferentFromSlip() public {
+        // Alice's slip is for constituency 1, but she seals a vote for constituency 2.
+        uint deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _slip(voting, signerKey, alice, 1, ALICE_ID, deadline);
+        vm.prank(alice);
+        voting.commitVote(_commitment(MP_C2, MLA_C2, 2, alice, SALT), 1, ALICE_ID, deadline, sig);
+        _startRevealing();
+
+        vm.prank(alice);
+        vm.expectRevert("Constituency does not match your slip");
+        voting.revealVote(MP_C2, MLA_C2, 2, SALT);
     }
 
     // --- whole election ---

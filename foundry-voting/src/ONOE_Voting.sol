@@ -30,6 +30,7 @@ contract ONOE_Voting {
     mapping(address => bool) public hasVoted;    // One commit per wallet
     mapping(address => bool) public hasRevealed; // Lets the UI resume at the right step
     mapping(bytes32 => bool) public nullifierUsed; // One commit per real voter ID, whatever wallet they use
+    mapping(address => uint) public voterConstituency; // Constituency from the signed slip, enforced again at reveal
 
     // --- Events (Crucial for your Frontend) ---
     event ElectionStateChanged(ElectionState newState);
@@ -99,14 +100,22 @@ contract ONOE_Voting {
         commitments[_commitment] = true;
         hasVoted[msg.sender] = true;
         nullifierUsed[_nullifier] = true;
+        voterConstituency[msg.sender] = _voterConstituency;
         emit VoteCommitted(_commitment);
     }
 
     // 2. REVEAL PHASE: User reveals choices (MP + MLA)
     function revealVote(uint _mpId, uint _mlaId, uint _voterConstituency, bytes32 _salt) external inState(ElectionState.Revealing) {
+        // Candidate ids start at 1; id 0 and unknown ids must not pass as an MLA
+        require(_mpId >= 1 && _mpId <= candidateCount, "Unknown MP");
+        require(_mlaId >= 1 && _mlaId <= candidateCount, "Unknown MLA");
+
         // Recreate the hash to prove it matches the commitment
         bytes32 hash = keccak256(abi.encodePacked(_mpId, _mlaId, _voterConstituency, msg.sender, _salt));
         require(commitments[hash], "No matching vote commitment found");
+
+        // The constituency must be the one on the signed slip, not one the voter picked inside the hash
+        require(_voterConstituency == voterConstituency[msg.sender], "Constituency does not match your slip");
 
         // Enforce ONOE Rules
         Candidate memory mp = candidates[_mpId];
