@@ -163,3 +163,7 @@ This is a prototype. What it does and does not protect against:
 | The salt was a short `Math.random` string, so sealed votes could be guessed | A 32-byte secure random `bytes32` salt |
 | A reload lost the slip and salt | A per-wallet saved session, plus a downloadable receipt |
 | Vote total was computed as a guess (`sum / 2`) | `totalRevealed` counter in the contract |
+
+## License
+
+MIT. See [LICENSE](LICENSE).
